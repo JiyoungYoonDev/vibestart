@@ -1,0 +1,15 @@
+package com.auth.auth_service.common;
+
+public enum ErrorCode {
+    VALIDATION_ERROR,
+    BAD_REQUEST,
+    UNAUTHORIZED,
+    FORBIDDEN,
+    NOT_FOUND,
+    CONFLICT,
+    INTERNAL_SERVER_ERROR,
+    EMAIL_ALREADY_EXISTS,
+    INVALID_CREDENTIALS,
+    TOKEN_EXPIRED,
+    INVALID_TOKEN,
+}
