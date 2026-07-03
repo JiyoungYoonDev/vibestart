@@ -1,11 +1,11 @@
 services:
   postgres:
-    image: postgres:latest
+    image: postgres:17
     container_name: vibestart-postgres
     environment:
-      POSTGRES_DB: vibestart
-      POSTGRES_USER: vibestart
-      POSTGRES_PASSWORD: vibestart
+      POSTGRES_DB: vibestart_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
@@ -29,9 +29,9 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: vibestart
-      DB_USER: vibestart
-      DB_PASSWORD: vibestart
+      DB_NAME: vibestart_auth
+      DB_USER: postgres
+      DB_PASSWORD: postgres
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
