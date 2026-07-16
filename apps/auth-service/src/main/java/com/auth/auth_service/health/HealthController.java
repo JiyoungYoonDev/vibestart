@@ -24,10 +24,4 @@ public class HealthController {
 	public ApiResponse<Void> liveness() {
 		return ApiResponse.success("Auth Service is alive!");
 	}
-
-	// Exception Testing Endpoints
-	@GetMapping("/health/exception/runtime")
-	public ApiResponse<Void> testRuntimeException() {
-		throw new RuntimeException("This is a test runtime exception");
-	}
 }
