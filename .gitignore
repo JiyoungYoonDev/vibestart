@@ -10,7 +10,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-
+.mcp.json
+.env.example
 # Logs
 *.log
 
@@ -36,3 +37,5 @@ build/
 
 # Docker
 *.pid
+
+*.claude

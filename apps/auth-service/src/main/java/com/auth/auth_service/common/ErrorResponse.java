@@ -1,6 +1,6 @@
 package com.auth.auth_service.common;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /*
 {
@@ -23,11 +23,12 @@ public record ErrorResponse<T> (
     String timestamp,
     T details
 ) {
+    
     public static ErrorResponse<Void> of(ErrorCode code, String message, String path) {
-        return new ErrorResponse<>(false, code, message, path, LocalDateTime.now().toString(), null);
+        return new ErrorResponse<>(false, code, message, path, Instant.now().toString(), null);
     }
 
     public static <T> ErrorResponse<T> of(ErrorCode code, String message, String path, T details) {
-        return new ErrorResponse<>(false, code, message, path, LocalDateTime.now().toString(), details);
+        return new ErrorResponse<>(false, code, message, path, Instant.now().toString(), details);
     }
 }
