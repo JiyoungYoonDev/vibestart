@@ -24,7 +24,8 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
-COPY --from=build /app/node_modules ./node_modules
+
+RUN npm ci --omit=dev
 
 EXPOSE 3000
 

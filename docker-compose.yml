@@ -10,6 +10,11 @@ services:
       - "${DB_PORT}:5432"
     volumes:
       - vibestart-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7.2
@@ -35,8 +40,10 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   web:
     build:
@@ -45,7 +52,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_AUTH_API_URL: http://localhost:8081
+      NEXT_PUBLIC_AUTH_API_URL: http://localhost:8080
     depends_on:
       - auth-service
 
