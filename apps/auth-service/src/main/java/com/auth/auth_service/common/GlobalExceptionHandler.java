@@ -9,6 +9,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestControllerAdvice
@@ -19,6 +22,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      * already mapped by ResponseEntityExceptionHandler. We override to wrap
      * them in our standard ErrorResponse shape.
      */
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
             Exception ex,
@@ -45,6 +50,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             RuntimeException ex,
             HttpServletRequest request
     ) {
+        logger.error("RuntimeException occurred: {}", request.getRequestURI(), ex);
+
         ErrorResponse<Void> response = ErrorResponse.of(
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 "Unexpected server error",
@@ -61,6 +68,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             Exception ex,
             HttpServletRequest request
     ) {
+
+        logger.error("Unexpected exception occurred at URI: {}", request.getRequestURI(), ex);
         ErrorResponse<Void> response = ErrorResponse.of(
                 ErrorCode.INTERNAL_SERVER_ERROR,
                 "Unexpected server error",
