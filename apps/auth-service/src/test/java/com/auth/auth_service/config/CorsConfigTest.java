@@ -172,15 +172,15 @@ class CorsConfigTest {
 
         Field originsField = CorsConfig.class.getDeclaredField("allowedOrigins");
         originsField.setAccessible(true);
-        originsField.set(config, new String[]{"http://localhost:3000"});
+        originsField.set(config, "http://localhost:3000");
 
         Field methodsField = CorsConfig.class.getDeclaredField("allowedMethods");
         methodsField.setAccessible(true);
-        methodsField.set(config, new String[]{"GET", "POST"});
+        methodsField.set(config, "GET, POST");
 
         Field headersField = CorsConfig.class.getDeclaredField("allowedHeaders");
         headersField.setAccessible(true);
-        headersField.set(config, new String[]{"Content-Type", "Authorization"});
+        headersField.set(config, "Content-Type, Authorization");
 
         // Act
         WebMvcConfigurer configurer = config.corsConfigurer();
