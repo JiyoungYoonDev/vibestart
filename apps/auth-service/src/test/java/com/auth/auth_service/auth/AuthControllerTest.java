@@ -1,10 +1,13 @@
 package com.auth.auth_service.auth;
 
+import com.auth.auth_service.auth.dto.LoginRequest;
+import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.SignupRequest;
 import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.common.GlobalExceptionHandler;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
+import com.auth.auth_service.exception.InvalidCredentialsException;
 import com.auth.auth_service.exception.WeakPasswordException;
 import com.auth.auth_service.user.UserStatus;
 import org.junit.jupiter.api.Test;
@@ -332,14 +335,164 @@ class AuthControllerTest {
 
     // -------------------------------------------------------------------------
     // Wrong HTTP method — GET on a POST-only endpoint
-    // Note: GlobalExceptionHandler extends ResponseEntityExceptionHandler,
-    // so HttpRequestMethodNotSupportedException (405) is handled by
-    // handleExceptionInternal(), which returns the correct 405 status.
     // -------------------------------------------------------------------------
 
     @Test
     void signup_getMethod_returns405() throws Exception {
         mockMvc.perform(get(SIGNUP_URL)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    // =========================================================================
+    // POST /api/v1/auth/login
+    // =========================================================================
+
+    private static final String LOGIN_URL = "/api/v1/auth/login";
+
+    /** Valid login body reused across happy-path tests. */
+    private static final String VALID_LOGIN_BODY = """
+            {"email": "user@example.com", "password": "Password1"}
+            """;
+
+    // ── Happy Path ────────────────────────────────────────────────────────────
+
+    @Test
+    void login_validRequest_returns200() throws Exception {
+        when(authService.login(any(LoginRequest.class))).thenReturn(
+                new LoginResponse("header.payload.sig", "Bearer", 3600L));
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void login_validRequest_responseBodyContainsAccessToken() throws Exception {
+        when(authService.login(any())).thenReturn(
+                new LoginResponse("header.payload.sig", "Bearer", 3600L));
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(jsonPath("$.accessToken").value("header.payload.sig"));
+    }
+
+    @Test
+    void login_validRequest_responseBodyTokenTypeIsBearer() throws Exception {
+        when(authService.login(any())).thenReturn(
+                new LoginResponse("header.payload.sig", "Bearer", 3600L));
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"));
+    }
+
+    @Test
+    void login_validRequest_responseBodyContainsExpiresIn() throws Exception {
+        when(authService.login(any())).thenReturn(
+                new LoginResponse("header.payload.sig", "Bearer", 3600L));
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(jsonPath("$.expiresIn").value(3600));
+    }
+
+    // ── Bean Validation (@Valid) Failures → 400 ───────────────────────────────
+
+    @Test
+    void login_blankEmail_returns400WithValidationError() throws Exception {
+        String body = """
+                {"email": "", "password": "Password1"}
+                """;
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void login_invalidEmailFormat_returns400WithValidationError() throws Exception {
+        String body = """
+                {"email": "not-an-email", "password": "Password1"}
+                """;
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.email").value("Invalid email format"));
+    }
+
+    @Test
+    void login_blankPassword_returns400WithValidationError() throws Exception {
+        String body = """
+                {"email": "user@example.com", "password": ""}
+                """;
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.password").value("Password is required"));
+    }
+
+    // ── Domain Exception: InvalidCredentialsException ─────────────────────────
+    //
+    // In the @WebMvcTest slice, Spring Security's filter chain converts the
+    // unhandled RuntimeException into a 401. A dedicated
+    // @ExceptionHandler(InvalidCredentialsException.class) returning 401
+    // with code INVALID_CREDENTIALS should be added to GlobalExceptionHandler
+    // to make this behaviour explicit and consistent in production.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void login_invalidCredentials_returns401() throws Exception {
+        when(authService.login(any())).thenThrow(new InvalidCredentialsException());
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * [TDD — RED] This test requires a dedicated @ExceptionHandler in GlobalExceptionHandler:
+     *
+     *   @ExceptionHandler(InvalidCredentialsException.class)
+     *   public ResponseEntity<ErrorResponse<Void>> handleInvalidCredentials(
+     *           InvalidCredentialsException ex, HttpServletRequest request) {
+     *       ErrorResponse<Void> body = ErrorResponse.of(
+     *               ErrorCode.INVALID_CREDENTIALS,
+     *               "Invalid credentials",
+     *               request.getRequestURI());
+     *       return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+     *   }
+     *
+     * Without this handler, Spring Security intercepts the exception and returns
+     * 401 with no JSON body — so $.code and $.success cannot be asserted.
+     */
+    @Test
+    void login_invalidCredentials_codeIsInvalidCredentials() throws Exception {
+        when(authService.login(any())).thenThrow(new InvalidCredentialsException());
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_LOGIN_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"))
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    // ── Wrong HTTP method ─────────────────────────────────────────────────────
+
+    @Test
+    void login_getMethod_returns405() throws Exception {
+        mockMvc.perform(get(LOGIN_URL)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isMethodNotAllowed());
     }

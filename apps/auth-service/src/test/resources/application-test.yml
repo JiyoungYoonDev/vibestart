@@ -21,3 +21,8 @@ spring:
     allowed-methods: GET,POST
     allowed-headers: "*"
     allow-credentials: true
+
+# 256-bit Base64 key (test-only, not a real secret)
+jwt:
+  secret: dGVzdC1zZWNyZXQta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2gtZm9yLUhTMjU2
+  expiration-ms: 3600000

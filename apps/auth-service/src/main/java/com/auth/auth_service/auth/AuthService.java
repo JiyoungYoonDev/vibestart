@@ -6,6 +6,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.WeakPasswordException;
+import com.auth.auth_service.security.JwtProperties;
+import com.auth.auth_service.security.JwtService;
+import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.auth.dto.LoginRequest;
+import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.SignupRequest;
 import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.user.User;
@@ -18,10 +23,14 @@ import com.auth.auth_service.user.UserStatus;
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final JwtProperties jwtProperties;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService, JwtProperties jwtProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.jwtProperties = jwtProperties;
     }
 
     public SignupResponse signup(SignupRequest request) {
@@ -49,5 +58,25 @@ public class AuthService {
         User newUser = new User(request.email(), hashedPassword, request.username(), UserRole.USER, UserStatus.PENDING_EMAIL_VERIFICATION);
         userRepository.save(newUser);
         return new SignupResponse(newUser.getId(), newUser.getEmail(), newUser.getUsername(), newUser.getStatus());
+    }
+
+    @Transactional(readOnly = true)
+    public LoginResponse login(LoginRequest request) {
+        String email = request.email().toLowerCase();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(InvalidCredentialsException::new);
+
+        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+
+        if (user.getStatus() == UserStatus.DISABLED) {
+            throw new InvalidCredentialsException();
+        }
+
+        String token = jwtService.generateToken(user);
+        long expiresInSeconds = jwtProperties.expirationMs() / 1000;
+
+        return new LoginResponse(token, "Bearer", expiresInSeconds);
     }
 }

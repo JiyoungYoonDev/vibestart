@@ -30,5 +30,11 @@ spring:
     allowed-headers: ${SPRING_CORS_ALLOWED_HEADERS}
     allow-credentials: true
 
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-ms: ${JWT_EXPIRATION_MS}
+
 server:
   port: 8080
+
+

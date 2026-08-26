@@ -12,6 +12,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
+import com.auth.auth_service.exception.InvalidCredentialsException;
 import com.auth.auth_service.exception.WeakPasswordException;
 
 import java.util.LinkedHashMap;
@@ -150,7 +151,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
         }
-        
+
+        @ExceptionHandler(InvalidCredentialsException.class)
+        public ResponseEntity<ErrorResponse<Void>> handleInvalidCredentials(
+                InvalidCredentialsException ex,
+                HttpServletRequest request) {
+
+        ErrorResponse<Void> body = ErrorResponse.of(
+                ErrorCode.INVALID_CREDENTIALS,
+                "Invalid credentials",
+                request.getRequestURI());
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+        }
         private ErrorCode resolveErrorCode(HttpStatusCode statusCode) {
                 int value = statusCode.value();
                 return switch (value) {
