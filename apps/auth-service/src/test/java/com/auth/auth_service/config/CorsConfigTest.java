@@ -2,11 +2,15 @@ package com.auth.auth_service.config;
 
 import com.auth.auth_service.common.GlobalExceptionHandler;
 import com.auth.auth_service.health.HealthController;
+import com.auth.auth_service.security.AuthEntryPoint;
+import com.auth.auth_service.security.CustomUserDetailsService;
+import com.auth.auth_service.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -32,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * from the main source set leaks into these tests.
  */
 @WebMvcTest(HealthController.class)
-@Import({CorsConfig.class, GlobalExceptionHandler.class})
+@Import({CorsConfig.class, GlobalExceptionHandler.class, AuthEntryPoint.class})
 @TestPropertySource(properties = {
         "spring.cors.allowed-origins=http://localhost:3000,http://allowed.example.com",
         "spring.cors.allowed-methods=GET,POST,PUT,DELETE,OPTIONS",
@@ -48,6 +52,12 @@ class CorsConfigTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtService jwtService;
+
+    @MockitoBean
+    private CustomUserDetailsService customUserDetailsService;
 
     // =========================================================================
     // Preflight (OPTIONS) — allowed origins

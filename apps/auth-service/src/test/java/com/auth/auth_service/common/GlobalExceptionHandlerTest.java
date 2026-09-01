@@ -1,6 +1,9 @@
 package com.auth.auth_service.common;
 
 import com.auth.auth_service.health.HealthController;
+import com.auth.auth_service.security.AuthEntryPoint;
+import com.auth.auth_service.security.CustomUserDetailsService;
+import com.auth.auth_service.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -8,6 +11,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,11 +33,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *     HttpServletRequest, with no Spring context at all.
  */
 @WebMvcTest(controllers = HealthController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, AuthEntryPoint.class})
 class GlobalExceptionHandlerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtService jwtService;
+
+    @MockitoBean
+    private CustomUserDetailsService customUserDetailsService;
 
     // -------------------------------------------------------------------------
     // Integration-style tests via MockMvc

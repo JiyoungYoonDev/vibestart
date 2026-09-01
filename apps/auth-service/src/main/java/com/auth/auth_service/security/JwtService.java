@@ -56,7 +56,7 @@ public class JwtService {
             Claims claims = extractAllClaims(token);
             Date expiration = claims.getExpiration();
             return expiration.after(new Date());
-        } catch (io.jsonwebtoken.JwtException e) {
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
             return false;
         }
     }

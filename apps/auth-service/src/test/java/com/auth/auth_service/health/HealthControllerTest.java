@@ -1,11 +1,15 @@
 package com.auth.auth_service.health;
 
 import com.auth.auth_service.common.GlobalExceptionHandler;
+import com.auth.auth_service.security.AuthEntryPoint;
+import com.auth.auth_service.security.CustomUserDetailsService;
+import com.auth.auth_service.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -20,11 +24,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * scan @RestControllerAdvice classes that live outside the controller package.
  */
 @WebMvcTest(HealthController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, AuthEntryPoint.class})
 class HealthControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private JwtService jwtService;
+
+    @MockitoBean
+    private CustomUserDetailsService customUserDetailsService;
 
     // -------------------------------------------------------------------------
     // GET /api/v1/health

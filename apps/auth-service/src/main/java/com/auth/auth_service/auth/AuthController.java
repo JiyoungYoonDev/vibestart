@@ -37,6 +37,12 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal AuthUserDetails userDetails) {
+        authService.logout(userDetails.getUser());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(@AuthenticationPrincipal AuthUserDetails userDetails) {
         User user = userDetails.getUser();

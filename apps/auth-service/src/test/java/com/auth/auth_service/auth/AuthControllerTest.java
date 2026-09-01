@@ -9,6 +9,9 @@ import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
 import com.auth.auth_service.exception.WeakPasswordException;
+import com.auth.auth_service.security.AuthEntryPoint;
+import com.auth.auth_service.security.CustomUserDetailsService;
+import com.auth.auth_service.security.JwtService;
 import com.auth.auth_service.user.UserStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,9 +37,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * HTTP contract, not the service's business logic.
  * GlobalExceptionHandler is imported explicitly so validation errors and
  * domain exceptions are translated into the standard ErrorResponse shape.
+ *
+ * SecurityConfig wires a real JwtAuthFilter and AuthEntryPoint into the
+ * filter chain (kept active — NOT disabled via addFilters=false — so that
+ * authenticated endpoints like /me can be tested realistically). JwtAuthFilter
+ * is auto-detected by @WebMvcTest because it is a servlet Filter, but its own
+ * dependencies (JwtService, CustomUserDetailsService) are not web-layer beans,
+ * so they are replaced with Mockito stubs. AuthEntryPoint is imported
+ * explicitly so the real 401 JSON response logic stays active.
  */
 @WebMvcTest(AuthController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, AuthEntryPoint.class})
 class AuthControllerTest {
 
     @Autowired
@@ -44,6 +55,12 @@ class AuthControllerTest {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private JwtService jwtService;
+
+    @MockitoBean
+    private CustomUserDetailsService customUserDetailsService;
 
     private static final String SIGNUP_URL = "/api/v1/auth/signup";
 

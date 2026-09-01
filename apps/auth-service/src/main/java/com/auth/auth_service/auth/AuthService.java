@@ -79,4 +79,9 @@ public class AuthService {
 
         return new LoginResponse(token, "Bearer", expiresInSeconds);
     }
+
+    public void logout(User user) {
+        
+        
+    }
 }
