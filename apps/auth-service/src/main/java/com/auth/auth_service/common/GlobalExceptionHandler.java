@@ -53,6 +53,24 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                 .body(errorResponse);
         }
 
+        // AuthorizationDeniedException (Spring Security 6's AccessDeniedException
+        // subtype, thrown by @PreAuthorize failures) would otherwise fall
+        // through to the generic RuntimeException handler below and come
+        // back as a misleading 500 instead of 403 — Spring resolves
+        // @ExceptionHandler by most-specific type regardless of declaration
+        // order, so this takes priority over handleRuntimeException.
+        @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+        public ResponseEntity<ErrorResponse<Void>> handleAccessDenied(
+                        org.springframework.security.access.AccessDeniedException ex,
+                        HttpServletRequest request) {
+                ErrorResponse<Void> body = ErrorResponse.of(
+                                ErrorCode.FORBIDDEN,
+                                "You do not have permission to perform this action",
+                                request.getRequestURI());
+
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+        }
+
         @ExceptionHandler(RuntimeException.class)
         public ResponseEntity<ErrorResponse<Void>> handleRuntimeException(
                         RuntimeException ex,

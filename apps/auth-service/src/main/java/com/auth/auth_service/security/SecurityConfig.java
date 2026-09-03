@@ -4,6 +4,7 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -13,8 +14,13 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 
+// @EnableMethodSecurity is required for @PreAuthorize to do anything at
+// all — without it the annotation is silently a no-op (no compile error,
+// the check just never fires). Needed for AdminController's
+// hasRole('ADMIN') checks.
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
