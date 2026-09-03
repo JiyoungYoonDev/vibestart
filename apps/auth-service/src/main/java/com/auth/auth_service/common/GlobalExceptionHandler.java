@@ -13,6 +13,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.exception.InvalidGoogleTokenException;
 import com.auth.auth_service.exception.WeakPasswordException;
 
 import java.util.LinkedHashMap;
@@ -164,6 +165,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
         }
+        @ExceptionHandler(InvalidGoogleTokenException.class)
+        public ResponseEntity<ErrorResponse<Void>> handleInvalidGoogleToken(
+                        InvalidGoogleTokenException ex,
+                        HttpServletRequest request) {
+
+                ErrorResponse<Void> body = ErrorResponse.of(
+                                ErrorCode.INVALID_GOOGLE_TOKEN,
+                                ex.getMessage(),
+                                request.getRequestURI());
+
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+        }
+
         private ErrorCode resolveErrorCode(HttpStatusCode statusCode) {
                 int value = statusCode.value();
                 return switch (value) {

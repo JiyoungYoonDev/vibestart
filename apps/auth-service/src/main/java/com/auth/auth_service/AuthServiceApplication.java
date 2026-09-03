@@ -4,10 +4,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
+import com.auth.auth_service.security.GoogleAuthProperties;
 import com.auth.auth_service.security.JwtProperties;
 
 @SpringBootApplication
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, GoogleAuthProperties.class})
 public class AuthServiceApplication {
 
 	public static void main(String[] args) {

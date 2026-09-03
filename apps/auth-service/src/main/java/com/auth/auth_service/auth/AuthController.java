@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
@@ -13,6 +14,7 @@ import com.auth.auth_service.auth.dto.SignupRequest;
 import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.security.AuthUserDetails;
 import com.auth.auth_service.user.User;
+import com.auth.auth_service.auth.dto.GoogleLoginRequest;
 import com.auth.auth_service.auth.dto.LoginRequest;
 import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.MeResponse;
@@ -37,9 +39,15 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/google")
+    public ResponseEntity<LoginResponse> loginWithGoogle(@Valid @RequestBody GoogleLoginRequest request) {
+        LoginResponse response = authService.loginWithGoogle(request);
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@AuthenticationPrincipal AuthUserDetails userDetails) {
-        authService.logout(userDetails.getUser());
+    public ResponseEntity<Void> logout(@RequestHeader("Authorization") String authHeader) {
+        authService.logout(authHeader.substring(7));
         return ResponseEntity.noContent().build();
     }
 

@@ -1,5 +1,6 @@
 package com.auth.auth_service.auth;
 
+import com.auth.auth_service.auth.dto.GoogleLoginRequest;
 import com.auth.auth_service.auth.dto.LoginRequest;
 import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.SignupRequest;
@@ -7,9 +8,13 @@ import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.exception.InvalidGoogleTokenException;
 import com.auth.auth_service.exception.WeakPasswordException;
+import com.auth.auth_service.security.GoogleTokenVerifier;
+import com.auth.auth_service.security.GoogleUserInfo;
 import com.auth.auth_service.security.JwtProperties;
 import com.auth.auth_service.security.JwtService;
+import com.auth.auth_service.security.TokenBlacklistService;
 import com.auth.auth_service.user.User;
 import com.auth.auth_service.user.UserRepository;
 import com.auth.auth_service.user.UserRole;
@@ -22,6 +27,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Duration;
+import java.util.Date;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -51,6 +59,12 @@ class AuthServiceTest {
 
     @Mock
     private JwtProperties jwtProperties;
+
+    @Mock
+    private TokenBlacklistService tokenBlacklistService;
+
+    @Mock
+    private GoogleTokenVerifier googleTokenVerifier;
 
     @InjectMocks
     private AuthService authService;
@@ -429,5 +443,116 @@ class AuthServiceTest {
                 .isInstanceOf(InvalidCredentialsException.class);
 
         verify(jwtService, never()).generateToken(any());
+    }
+
+    // =========================================================================
+    // loginWithGoogle()
+    // =========================================================================
+
+    @Test
+    void loginWithGoogle_newGoogleUser_createsAndPersistsUser() {
+        when(googleTokenVerifier.verify("google-id-token"))
+                .thenReturn(new GoogleUserInfo("g-sub-1", "newperson@example.com", true, "New Person"));
+        when(userRepository.findByGoogleId("g-sub-1")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("newperson@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(jwtService.generateToken(any())).thenReturn("token");
+        when(jwtProperties.expirationMs()).thenReturn(3_600_000L);
+
+        LoginResponse response = authService.loginWithGoogle(new GoogleLoginRequest("google-id-token"));
+
+        assertThat(response.accessToken()).isEqualTo("token");
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getEmail()).isEqualTo("newperson@example.com");
+        assertThat(captor.getValue().getGoogleId()).isEqualTo("g-sub-1");
+        assertThat(captor.getValue().getPasswordHash()).isNull();
+    }
+
+    @Test
+    void loginWithGoogle_existingGoogleUser_reusesAccountWithoutSaving() {
+        User existing = User.forGoogleSignIn("returning@example.com", "returning", "g-sub-2");
+        when(googleTokenVerifier.verify("google-id-token"))
+                .thenReturn(new GoogleUserInfo("g-sub-2", "returning@example.com", true, "Returning Person"));
+        when(userRepository.findByGoogleId("g-sub-2")).thenReturn(Optional.of(existing));
+        when(jwtService.generateToken(existing)).thenReturn("token");
+        when(jwtProperties.expirationMs()).thenReturn(3_600_000L);
+
+        authService.loginWithGoogle(new GoogleLoginRequest("google-id-token"));
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void loginWithGoogle_emailMatchesExistingPasswordAccount_linksGoogleId() {
+        User existingPasswordUser = activeUser();
+        when(googleTokenVerifier.verify("google-id-token"))
+                .thenReturn(new GoogleUserInfo("g-sub-3", "user@example.com", true, "Existing User"));
+        when(userRepository.findByGoogleId("g-sub-3")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(existingPasswordUser));
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(jwtService.generateToken(any())).thenReturn("token");
+        when(jwtProperties.expirationMs()).thenReturn(3_600_000L);
+
+        authService.loginWithGoogle(new GoogleLoginRequest("google-id-token"));
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getGoogleId()).isEqualTo("g-sub-3");
+    }
+
+    @Test
+    void loginWithGoogle_invalidToken_propagatesInvalidGoogleTokenException() {
+        when(googleTokenVerifier.verify("bad-token"))
+                .thenThrow(new InvalidGoogleTokenException("Google rejected the sign-in token"));
+
+        assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleLoginRequest("bad-token")))
+                .isInstanceOf(InvalidGoogleTokenException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void loginWithGoogle_disabledUser_throwsInvalidCredentialsException() {
+        User disabled = User.forGoogleSignIn("disabled@example.com", "disabled", "g-sub-4");
+        disabled.setStatus(UserStatus.DISABLED);
+        when(googleTokenVerifier.verify("google-id-token"))
+                .thenReturn(new GoogleUserInfo("g-sub-4", "disabled@example.com", true, "Disabled User"));
+        when(userRepository.findByGoogleId("g-sub-4")).thenReturn(Optional.of(disabled));
+
+        assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleLoginRequest("google-id-token")))
+                .isInstanceOf(InvalidCredentialsException.class);
+
+        verify(jwtService, never()).generateToken(any());
+    }
+
+    // =========================================================================
+    // logout()
+    // =========================================================================
+
+    @Test
+    void logout_revokesTheTokensJti() {
+        String token = "header.payload.sig";
+        when(jwtService.extractJti(token)).thenReturn("jti-123");
+        when(jwtService.extractExpiration(token)).thenReturn(new Date(System.currentTimeMillis() + 60_000));
+
+        authService.logout(token);
+
+        verify(tokenBlacklistService).blacklist(eq("jti-123"), any(Duration.class));
+    }
+
+    @Test
+    void logout_ttlPassedToBlacklistIsRoughlyTheTokensRemainingLifetime() {
+        String token = "header.payload.sig";
+        when(jwtService.extractJti(token)).thenReturn("jti-123");
+        when(jwtService.extractExpiration(token)).thenReturn(new Date(System.currentTimeMillis() + 60_000));
+
+        authService.logout(token);
+
+        ArgumentCaptor<Duration> ttlCaptor = ArgumentCaptor.forClass(Duration.class);
+        verify(tokenBlacklistService).blacklist(eq("jti-123"), ttlCaptor.capture());
+        // Allow a few seconds of test-execution slack around the expected ~60s
+        assertThat(ttlCaptor.getValue().toSeconds()).isBetween(55L, 60L);
     }
 }

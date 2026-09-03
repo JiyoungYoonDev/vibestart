@@ -313,4 +313,52 @@ class JwtServiceTest {
 
         assertThat(jwtService.isTokenValid(token)).isFalse();
     }
+
+    // =========================================================================
+    // extractJti() — used by TokenBlacklistService to key a logout revocation
+    // =========================================================================
+
+    @Test
+    void extractJti_returnsAParsableUuid() {
+        String token = jwtService.generateToken(userWithRole(UserRole.USER));
+
+        // Must not throw — jti is a UUID string
+        assertThat(UUID.fromString(jwtService.extractJti(token))).isNotNull();
+    }
+
+    @Test
+    void extractJti_matchesTheJtiClaimInTheToken() {
+        String token = jwtService.generateToken(userWithRole(UserRole.USER));
+
+        assertThat(jwtService.extractJti(token)).isEqualTo(parseClaims(token).getId());
+    }
+
+    @Test
+    void extractJti_calledTwiceForSameUser_producesDifferentJtis() {
+        User user = userWithRole(UserRole.USER);
+
+        String jti1 = jwtService.extractJti(jwtService.generateToken(user));
+        String jti2 = jwtService.extractJti(jwtService.generateToken(user));
+
+        // Two logins for the same user must be independently revocable
+        assertThat(jti1).isNotEqualTo(jti2);
+    }
+
+    // =========================================================================
+    // extractExpiration()
+    // =========================================================================
+
+    @Test
+    void extractExpiration_matchesTheExpirationClaimInTheToken() {
+        String token = jwtService.generateToken(userWithRole(UserRole.USER));
+
+        assertThat(jwtService.extractExpiration(token)).isEqualTo(parseClaims(token).getExpiration());
+    }
+
+    @Test
+    void extractExpiration_isInTheFuture() {
+        String token = jwtService.generateToken(userWithRole(UserRole.USER));
+
+        assertThat(jwtService.extractExpiration(token)).isAfter(new Date());
+    }
 }

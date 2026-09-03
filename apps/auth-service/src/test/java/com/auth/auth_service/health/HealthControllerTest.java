@@ -4,6 +4,7 @@ import com.auth.auth_service.common.GlobalExceptionHandler;
 import com.auth.auth_service.security.AuthEntryPoint;
 import com.auth.auth_service.security.CustomUserDetailsService;
 import com.auth.auth_service.security.JwtService;
+import com.auth.auth_service.security.TokenBlacklistService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -35,6 +36,9 @@ class HealthControllerTest {
 
     @MockitoBean
     private CustomUserDetailsService customUserDetailsService;
+
+    @MockitoBean
+    private TokenBlacklistService tokenBlacklistService;
 
     // -------------------------------------------------------------------------
     // GET /api/v1/health

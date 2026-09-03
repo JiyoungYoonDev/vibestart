@@ -28,6 +28,7 @@ import lombok.RequiredArgsConstructor;
 public class JwtAuthFilter extends OncePerRequestFilter{
     private final JwtService jwtService;
     private final CustomUserDetailsService customUserDetailsService;
+    private final TokenBlacklistService tokenBlacklistService;
     private final ObjectMapper objectMapper;
     private final Logger logger = LoggerFactory.getLogger(JwtAuthFilter.class.getName());
 
@@ -39,12 +40,20 @@ public class JwtAuthFilter extends OncePerRequestFilter{
     ) throws ServletException, IOException {
         try {
             String authHeader = request.getHeader("Authorization");
-            
+
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
                 boolean isValid = jwtService.isTokenValid(token);
 
                 if (!isValid) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // Signature/expiry alone can't reflect a logout — that only
+                // revokes this jti in Redis (AuthService.logout), so a
+                // structurally-valid-but-revoked token must be rejected here.
+                if (tokenBlacklistService.isBlacklisted(jwtService.extractJti(token))) {
                     filterChain.doFilter(request, response);
                     return;
                 }

@@ -1,5 +1,6 @@
 package com.auth.auth_service.auth;
 
+import com.auth.auth_service.auth.dto.GoogleLoginRequest;
 import com.auth.auth_service.auth.dto.LoginRequest;
 import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.SignupRequest;
@@ -8,10 +9,16 @@ import com.auth.auth_service.common.GlobalExceptionHandler;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.exception.InvalidGoogleTokenException;
 import com.auth.auth_service.exception.WeakPasswordException;
 import com.auth.auth_service.security.AuthEntryPoint;
+import com.auth.auth_service.security.AuthUserDetails;
 import com.auth.auth_service.security.CustomUserDetailsService;
 import com.auth.auth_service.security.JwtService;
+import com.auth.auth_service.security.SecurityConfig;
+import com.auth.auth_service.security.TokenBlacklistService;
+import com.auth.auth_service.user.User;
+import com.auth.auth_service.user.UserRole;
 import com.auth.auth_service.user.UserStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,11 +26,13 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -38,16 +47,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * GlobalExceptionHandler is imported explicitly so validation errors and
  * domain exceptions are translated into the standard ErrorResponse shape.
  *
- * SecurityConfig wires a real JwtAuthFilter and AuthEntryPoint into the
- * filter chain (kept active — NOT disabled via addFilters=false — so that
- * authenticated endpoints like /me can be tested realistically). JwtAuthFilter
- * is auto-detected by @WebMvcTest because it is a servlet Filter, but its own
- * dependencies (JwtService, CustomUserDetailsService) are not web-layer beans,
- * so they are replaced with Mockito stubs. AuthEntryPoint is imported
- * explicitly so the real 401 JSON response logic stays active.
+ * SecurityConfig is imported explicitly (kept active — NOT disabled via
+ * addFilters=false — so authenticated endpoints like /me and /logout can be
+ * tested realistically). @WebMvcTest does NOT pick up a plain @Configuration
+ * like SecurityConfig automatically (it isn't one of its scanned component
+ * types) — omitting this import let every request reach the controller
+ * regardless of auth state, silently no-op'ing every unauthenticated-request
+ * test until this was added.
+ *
+ * @WebMvcTest still auto-detects JwtAuthFilter on its own too, since it's a
+ * Filter @Component — but SecurityConfig now registers a disabled
+ * FilterRegistrationBean<JwtAuthFilter> specifically to stop Spring Boot from
+ * ALSO auto-registering it as a standalone servlet filter outside Spring
+ * Security's own chain (see that bean's own comment for what broke without
+ * it: a validly-authenticated request still got treated as anonymous).
+ * JwtAuthFilter's own dependencies (JwtService, CustomUserDetailsService,
+ * TokenBlacklistService) are not web-layer beans, so they are replaced with
+ * Mockito stubs. AuthEntryPoint is imported explicitly so the real 401 JSON
+ * response logic stays active.
  */
 @WebMvcTest(AuthController.class)
-@Import({GlobalExceptionHandler.class, AuthEntryPoint.class})
+@Import({GlobalExceptionHandler.class, AuthEntryPoint.class, SecurityConfig.class})
 class AuthControllerTest {
 
     @Autowired
@@ -61,6 +81,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private CustomUserDetailsService customUserDetailsService;
+
+    @MockitoBean
+    private TokenBlacklistService tokenBlacklistService;
 
     private static final String SIGNUP_URL = "/api/v1/auth/signup";
 
@@ -512,5 +535,162 @@ class AuthControllerTest {
         mockMvc.perform(get(LOGIN_URL)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isMethodNotAllowed());
+    }
+
+    // =========================================================================
+    // POST /api/v1/auth/google
+    // =========================================================================
+
+    private static final String GOOGLE_URL = "/api/v1/auth/google";
+
+    @Test
+    void loginWithGoogle_validToken_returns200() throws Exception {
+        when(authService.loginWithGoogle(any())).thenReturn(
+                new LoginResponse("header.payload.sig", "Bearer", 3600L));
+
+        mockMvc.perform(post(GOOGLE_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"idToken": "google-id-token"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("header.payload.sig"));
+    }
+
+    @Test
+    void loginWithGoogle_blankIdToken_returns400WithValidationError() throws Exception {
+        mockMvc.perform(post(GOOGLE_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"idToken": ""}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void loginWithGoogle_invalidToken_returns401() throws Exception {
+        when(authService.loginWithGoogle(any()))
+                .thenThrow(new InvalidGoogleTokenException("Google rejected the sign-in token"));
+
+        mockMvc.perform(post(GOOGLE_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"idToken": "bad-token"}
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_GOOGLE_TOKEN"));
+    }
+
+    // =========================================================================
+    // GET /api/v1/auth/me
+    //
+    // Exercises the real JwtAuthFilter + SecurityConfig (not disabled in this
+    // slice — see the class doc comment), with JwtService/CustomUserDetailsService
+    // mocked so no real token needs to be signed. "valid.jwt.token" is an
+    // opaque string here; it's never actually parsed since jwtService itself
+    // is a Mockito stub.
+    // =========================================================================
+
+    private static final String ME_URL = "/api/v1/auth/me";
+    private static final String VALID_TOKEN = "valid.jwt.token";
+
+    private User stubUser() {
+        User user = new User("user@example.com", "hashed", "testuser", UserRole.USER, UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "id", UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        return user;
+    }
+
+    /** Wires jwtService + customUserDetailsService so VALID_TOKEN authenticates as `user`. */
+    private void stubAuthenticatedRequest(User user) {
+        when(jwtService.isTokenValid(VALID_TOKEN)).thenReturn(true);
+        when(jwtService.extractJti(VALID_TOKEN)).thenReturn("jti-1");
+        when(tokenBlacklistService.isBlacklisted("jti-1")).thenReturn(false);
+        when(jwtService.extractUserId(VALID_TOKEN)).thenReturn(user.getId().toString());
+        when(customUserDetailsService.loadUserByUsername(user.getId().toString()))
+                .thenReturn(new AuthUserDetails(user));
+    }
+
+    @Test
+    void me_noAuthorizationHeader_returns401() throws Exception {
+        mockMvc.perform(get(ME_URL))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void me_noAuthorizationHeader_bodyCodeIsUnauthorized() throws Exception {
+        mockMvc.perform(get(ME_URL))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void me_blacklistedToken_returns401() throws Exception {
+        when(jwtService.isTokenValid(VALID_TOKEN)).thenReturn(true);
+        when(jwtService.extractJti(VALID_TOKEN)).thenReturn("jti-1");
+        when(tokenBlacklistService.isBlacklisted("jti-1")).thenReturn(true);
+
+        mockMvc.perform(get(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void me_validToken_returns200() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(get(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void me_validToken_responseBodyContainsEmail() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(get(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(jsonPath("$.email").value("user@example.com"));
+    }
+
+    @Test
+    void me_validToken_responseBodyContainsUsername() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(get(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(jsonPath("$.username").value("testuser"));
+    }
+
+    // =========================================================================
+    // POST /api/v1/auth/logout
+    // =========================================================================
+
+    private static final String LOGOUT_URL = "/api/v1/auth/logout";
+
+    @Test
+    void logout_noAuthorizationHeader_returns401() throws Exception {
+        mockMvc.perform(post(LOGOUT_URL))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_validToken_returns204() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(post(LOGOUT_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void logout_validToken_callsAuthServiceWithTheBareToken() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(post(LOGOUT_URL).header("Authorization", "Bearer " + VALID_TOKEN))
+                .andExpect(status().isNoContent());
+
+        // Controller strips the "Bearer " prefix before handing off to the service
+        verify(authService).logout(VALID_TOKEN);
     }
 }

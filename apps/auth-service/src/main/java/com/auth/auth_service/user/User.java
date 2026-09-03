@@ -23,8 +23,11 @@ public class User {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    @Column(name = "password_hash")
     private String passwordHash;
+
+    @Column(name = "google_id", unique = true)
+    private String googleId;
 
     @Column(name = "username", nullable = false)
     private String username;
@@ -54,6 +57,20 @@ public class User {
         this.status = status;
     }
 
+    /**
+     * Google-signed-in users have no password of their own — Google already
+     * verified the email, so they skip PENDING_EMAIL_VERIFICATION too.
+     */
+    public static User forGoogleSignIn(String email, String username, String googleId) {
+        User user = new User();
+        user.setEmail(email);
+        user.username = username;
+        user.role = UserRole.USER;
+        user.status = UserStatus.ACTIVE;
+        user.googleId = googleId;
+        return user;
+    }
+
     @PreUpdate
     private void onUpdate() {
         this.updatedAt = Instant.now();
@@ -77,6 +94,14 @@ public class User {
 
     public void setPasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public String getGoogleId() {
+        return googleId;
+    }
+
+    public void setGoogleId(String googleId) {
+        this.googleId = googleId;
     }
 
     public String getUsername() {

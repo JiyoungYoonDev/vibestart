@@ -2,6 +2,7 @@ package com.auth.auth_service.security;
 
 import java.util.Base64;
 import java.util.Date;
+import java.util.UUID;
 
 import javax.crypto.SecretKey;
 
@@ -29,6 +30,7 @@ public class JwtService {
         Date expiry = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(user.getId().toString())
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole().name())
@@ -49,6 +51,16 @@ public class JwtService {
     public String extractUserId(String token) {
         Claims claims = extractAllClaims(token);
         return claims.getSubject();
+    }
+
+    public String extractJti(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.getId();
+    }
+
+    public Date extractExpiration(String token) {
+        Claims claims = extractAllClaims(token);
+        return claims.getExpiration();
     }
 
     public boolean isTokenValid(String token) {
