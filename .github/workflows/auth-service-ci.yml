@@ -2,7 +2,7 @@ name: Auth Service CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, staging]
     paths:
       - "apps/auth-service/**"
   pull_request:
