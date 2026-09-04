@@ -10,6 +10,7 @@ import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
 import com.auth.auth_service.exception.InvalidGoogleTokenException;
+import com.auth.auth_service.exception.PasswordChangeNotAllowedException;
 import com.auth.auth_service.exception.WeakPasswordException;
 import com.auth.auth_service.security.AuthEntryPoint;
 import com.auth.auth_service.security.AuthUserDetails;
@@ -25,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -32,9 +34,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -65,9 +69,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * TokenBlacklistService) are not web-layer beans, so they are replaced with
  * Mockito stubs. AuthEntryPoint is imported explicitly so the real 401 JSON
  * response logic stays active.
+ *
+ * RateLimitFilter is disabled here for the same reason (auto-detected as a
+ * Filter @Component, same as JwtAuthFilter) — this class's shared
+ * ApplicationContext calls /signup and /login far more than their per-hour
+ * and per-minute budgets across its ~50 @Test methods, so without this the
+ * later tests in the class start failing on unrelated assertions once the
+ * bucket for that endpoint runs dry.
  */
 @WebMvcTest(AuthController.class)
 @Import({GlobalExceptionHandler.class, AuthEntryPoint.class, SecurityConfig.class})
+@TestPropertySource(properties = "rate-limit.enabled=false")
 class AuthControllerTest {
 
     @Autowired
@@ -692,5 +704,127 @@ class AuthControllerTest {
 
         // Controller strips the "Bearer " prefix before handing off to the service
         verify(authService).logout(VALID_TOKEN);
+    }
+
+    // =========================================================================
+    // PATCH /api/v1/auth/me
+    // =========================================================================
+
+    private static final String UPDATE_ME_BODY = """
+            {"username": "newname"}
+            """;
+
+    @Test
+    void updateMe_noAuthorizationHeader_returns401() throws Exception {
+        mockMvc.perform(patch(ME_URL).contentType(MediaType.APPLICATION_JSON).content(UPDATE_ME_BODY))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void updateMe_validToken_returns200WithUpdatedUsername() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+        User updated = stubUser();
+        updated.setUsername("newname");
+        when(authService.updateUsername(any(User.class), eq("newname"))).thenReturn(updated);
+
+        mockMvc.perform(patch(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(UPDATE_ME_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("newname"));
+    }
+
+    @Test
+    void updateMe_blankUsername_returns400WithValidationError() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(patch(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"username": ""}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void updateMe_usernameTakenByAnotherAccount_returns409() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+        when(authService.updateUsername(any(User.class), eq("taken")))
+                .thenThrow(new DuplicateUsernameException("taken"));
+
+        mockMvc.perform(patch(ME_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"username": "taken"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("USERNAME_ALREADY_EXISTS"));
+    }
+
+    // =========================================================================
+    // POST /api/v1/auth/change-password
+    // =========================================================================
+
+    private static final String CHANGE_PASSWORD_URL = "/api/v1/auth/change-password";
+
+    private static final String VALID_CHANGE_PASSWORD_BODY = """
+            {"currentPassword": "OldPass1", "newPassword": "NewPass2"}
+            """;
+
+    @Test
+    void changePassword_noAuthorizationHeader_returns401() throws Exception {
+        mockMvc.perform(post(CHANGE_PASSWORD_URL)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_CHANGE_PASSWORD_BODY))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void changePassword_validToken_returns204() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(post(CHANGE_PASSWORD_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_CHANGE_PASSWORD_BODY))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void changePassword_wrongCurrentPassword_returns401WithInvalidCredentials() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+        org.mockito.Mockito.doThrow(new InvalidCredentialsException())
+                .when(authService).changePassword(any(User.class), any());
+
+        mockMvc.perform(post(CHANGE_PASSWORD_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_CHANGE_PASSWORD_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void changePassword_weakNewPassword_returns400WithValidationError() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+
+        mockMvc.perform(post(CHANGE_PASSWORD_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"currentPassword": "OldPass1", "newPassword": "short"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void changePassword_googleOnlyAccount_returns400() throws Exception {
+        User user = stubUser();
+        stubAuthenticatedRequest(user);
+        org.mockito.Mockito.doThrow(new PasswordChangeNotAllowedException(
+                        "This account signed in with Google and has no password to change."))
+                .when(authService).changePassword(any(User.class), any());
+
+        mockMvc.perform(post(CHANGE_PASSWORD_URL).header("Authorization", "Bearer " + VALID_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_CHANGE_PASSWORD_BODY))
+                .andExpect(status().isBadRequest());
     }
 }

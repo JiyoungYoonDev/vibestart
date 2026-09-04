@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,10 +15,12 @@ import com.auth.auth_service.auth.dto.SignupRequest;
 import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.security.AuthUserDetails;
 import com.auth.auth_service.user.User;
+import com.auth.auth_service.auth.dto.ChangePasswordRequest;
 import com.auth.auth_service.auth.dto.GoogleLoginRequest;
 import com.auth.auth_service.auth.dto.LoginRequest;
 import com.auth.auth_service.auth.dto.LoginResponse;
 import com.auth.auth_service.auth.dto.MeResponse;
+import com.auth.auth_service.auth.dto.UpdateUsernameRequest;
 
 import lombok.RequiredArgsConstructor;
 
@@ -62,5 +65,28 @@ public class AuthController {
             user.getStatus()
         );
         return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/me")
+    public ResponseEntity<MeResponse> updateMe(
+            @AuthenticationPrincipal AuthUserDetails userDetails,
+            @Valid @RequestBody UpdateUsernameRequest request) {
+        User user = authService.updateUsername(userDetails.getUser(), request.username());
+        MeResponse response = new MeResponse(
+            user.getId(),
+            user.getEmail(),
+            user.getUsername(),
+            user.getRole(),
+            user.getStatus()
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal AuthUserDetails userDetails,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(userDetails.getUser(), request);
+        return ResponseEntity.noContent().build();
     }
 }

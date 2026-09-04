@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
+import com.auth.auth_service.exception.PasswordChangeNotAllowedException;
 import com.auth.auth_service.exception.WeakPasswordException;
 import com.auth.auth_service.security.GoogleTokenVerifier;
 import com.auth.auth_service.security.GoogleUserInfo;
@@ -12,6 +13,7 @@ import com.auth.auth_service.security.JwtProperties;
 import com.auth.auth_service.security.JwtService;
 import com.auth.auth_service.security.TokenBlacklistService;
 import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.auth.dto.ChangePasswordRequest;
 import com.auth.auth_service.auth.dto.GoogleLoginRequest;
 import com.auth.auth_service.auth.dto.LoginRequest;
 import com.auth.auth_service.auth.dto.LoginResponse;
@@ -53,15 +55,7 @@ public class AuthService {
             throw new DuplicateUsernameException(request.username());
         }
 
-        // password check
-        String password = request.password();
-        boolean hasLetter =
-        password.chars().anyMatch(Character::isLetter);
-        boolean hasDigit  =
-        password.chars().anyMatch(Character::isDigit);
-        if (!hasLetter || !hasDigit) {
-            throw new WeakPasswordException("Password must contain at   least one letter and one digit");
-        }
+        validatePasswordStrength(request.password());
 
         // bcryt
         String hashedPassword = passwordEncoder.encode(request.password());
@@ -138,5 +132,40 @@ public class AuthService {
         Instant expiresAt = jwtService.extractExpiration(token).toInstant();
         Duration remaining = Duration.between(Instant.now(), expiresAt);
         tokenBlacklistService.blacklist(jti, remaining);
+    }
+
+    public User updateUsername(User user, String newUsername) {
+        if (!newUsername.equals(user.getUsername()) && userRepository.findByUsername(newUsername).isPresent()) {
+            throw new DuplicateUsernameException(newUsername);
+        }
+        user.setUsername(newUsername);
+        return userRepository.save(user);
+    }
+
+    /**
+     * Google-only accounts (signed up via forGoogleSignIn) have no
+     * passwordHash to verify against — there's no "current password" to
+     * check, and no login path that would ever use a new one either, so
+     * this is refused outright rather than silently no-oping.
+     */
+    public void changePassword(User user, ChangePasswordRequest request) {
+        if (user.getPasswordHash() == null) {
+            throw new PasswordChangeNotAllowedException(
+                    "This account signed in with Google and has no password to change.");
+        }
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+        validatePasswordStrength(request.newPassword());
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        userRepository.save(user);
+    }
+
+    private void validatePasswordStrength(String password) {
+        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
+        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
+        if (!hasLetter || !hasDigit) {
+            throw new WeakPasswordException("Password must contain at least one letter and one digit");
+        }
     }
 }

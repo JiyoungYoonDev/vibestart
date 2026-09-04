@@ -14,6 +14,7 @@ import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
 import com.auth.auth_service.exception.InvalidGoogleTokenException;
+import com.auth.auth_service.exception.PasswordChangeNotAllowedException;
 import com.auth.auth_service.exception.WeakPasswordException;
 
 import java.util.LinkedHashMap;
@@ -183,6 +184,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
         }
+        @ExceptionHandler(PasswordChangeNotAllowedException.class)
+        public ResponseEntity<ErrorResponse<Void>> handlePasswordChangeNotAllowed(
+                        PasswordChangeNotAllowedException ex,
+                        HttpServletRequest request) {
+
+                ErrorResponse<Void> body = ErrorResponse.of(
+                                ErrorCode.BAD_REQUEST,
+                                ex.getMessage(),
+                                request.getRequestURI());
+
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+        }
+
         @ExceptionHandler(InvalidGoogleTokenException.class)
         public ResponseEntity<ErrorResponse<Void>> handleInvalidGoogleToken(
                         InvalidGoogleTokenException ex,

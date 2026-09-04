@@ -8,7 +8,9 @@ import com.auth.auth_service.auth.dto.SignupResponse;
 import com.auth.auth_service.exception.DuplicateEmailException;
 import com.auth.auth_service.exception.DuplicateUsernameException;
 import com.auth.auth_service.exception.InvalidCredentialsException;
+import com.auth.auth_service.auth.dto.ChangePasswordRequest;
 import com.auth.auth_service.exception.InvalidGoogleTokenException;
+import com.auth.auth_service.exception.PasswordChangeNotAllowedException;
 import com.auth.auth_service.exception.WeakPasswordException;
 import com.auth.auth_service.security.GoogleTokenVerifier;
 import com.auth.auth_service.security.GoogleUserInfo;
@@ -554,5 +556,92 @@ class AuthServiceTest {
         verify(tokenBlacklistService).blacklist(eq("jti-123"), ttlCaptor.capture());
         // Allow a few seconds of test-execution slack around the expected ~60s
         assertThat(ttlCaptor.getValue().toSeconds()).isBetween(55L, 60L);
+    }
+
+    // =========================================================================
+    // updateUsername()
+    // =========================================================================
+
+    @Test
+    void updateUsername_newNameNotTaken_savesAndReturnsUpdatedUser() {
+        User user = activeUser();
+        when(userRepository.findByUsername("newname")).thenReturn(Optional.empty());
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        User result = authService.updateUsername(user, "newname");
+
+        assertThat(result.getUsername()).isEqualTo("newname");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void updateUsername_sameAsCurrentName_doesNotCheckForDuplicatesAndStillSaves() {
+        User user = activeUser(); // username is "testuser"
+        when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.updateUsername(user, "testuser");
+
+        verify(userRepository, never()).findByUsername(any());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void updateUsername_alreadyTakenByAnotherAccount_throwsDuplicateUsernameException() {
+        User user = activeUser();
+        when(userRepository.findByUsername("taken")).thenReturn(Optional.of(existingUser()));
+
+        assertThatThrownBy(() -> authService.updateUsername(user, "taken"))
+                .isInstanceOf(DuplicateUsernameException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    // =========================================================================
+    // changePassword()
+    // =========================================================================
+
+    @Test
+    void changePassword_correctCurrentPasswordAndStrongNewOne_hashesAndSaves() {
+        User user = activeUser();
+        when(passwordEncoder.matches("Password1", "hashed_password")).thenReturn(true);
+        when(passwordEncoder.encode("NewPass2")).thenReturn("new_hashed");
+
+        authService.changePassword(user, new ChangePasswordRequest("Password1", "NewPass2"));
+
+        assertThat(user.getPasswordHash()).isEqualTo("new_hashed");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void changePassword_wrongCurrentPassword_throwsInvalidCredentialsException() {
+        User user = activeUser();
+        when(passwordEncoder.matches("WrongPass1", "hashed_password")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword(user, new ChangePasswordRequest("WrongPass1", "NewPass2")))
+                .isInstanceOf(InvalidCredentialsException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_weakNewPassword_throwsWeakPasswordExceptionWithoutSaving() {
+        User user = activeUser();
+        when(passwordEncoder.matches("Password1", "hashed_password")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.changePassword(user, new ChangePasswordRequest("Password1", "onlyletters")))
+                .isInstanceOf(WeakPasswordException.class);
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void changePassword_googleOnlyAccountWithNoPasswordHash_throwsPasswordChangeNotAllowed() {
+        User googleUser = User.forGoogleSignIn("g@example.com", "guser", "g-sub-9");
+
+        assertThatThrownBy(() -> authService.changePassword(googleUser, new ChangePasswordRequest("anything", "NewPass2")))
+                .isInstanceOf(PasswordChangeNotAllowedException.class);
+
+        verify(userRepository, never()).save(any());
+        verify(passwordEncoder, never()).matches(any(), any());
     }
 }
