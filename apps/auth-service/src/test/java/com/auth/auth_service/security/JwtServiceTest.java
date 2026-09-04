@@ -211,8 +211,14 @@ class JwtServiceTest {
     void generateToken_tamperedSignature_isRejectedByParser() {
         String token = jwtService.generateToken(userWithRole(UserRole.USER));
 
-        // Corrupt the last character of the signature segment
-        String tampered = token.substring(0, token.length() - 1) + "X";
+        // Corrupt a character in the middle of the signature segment — the
+        // *last* base64url character only encodes a few bits of the final
+        // byte, so replacing it can occasionally decode to the same byte
+        // value by chance, leaving the signature bytes (and the test)
+        // unchanged. A middle character always flips a real byte.
+        int mid = token.length() / 2;
+        char replacement = token.charAt(mid) == 'X' ? 'Y' : 'X';
+        String tampered = token.substring(0, mid) + replacement + token.substring(mid + 1);
 
         assertThatThrownBy(() -> parseClaims(tampered))
                 .isInstanceOf(io.jsonwebtoken.security.SecurityException.class);
@@ -286,8 +292,14 @@ class JwtServiceTest {
     void isTokenValid_tamperedToken_returnsFalse() {
         String token = jwtService.generateToken(userWithRole(UserRole.USER));
 
-        // Corrupt the last character of the signature segment
-        String tampered = token.substring(0, token.length() - 1) + "X";
+        // Corrupt a character in the middle of the signature segment — the
+        // *last* base64url character only encodes a few bits of the final
+        // byte, so replacing it can occasionally decode to the same byte
+        // value by chance, leaving the signature bytes (and the test)
+        // unchanged. A middle character always flips a real byte.
+        int mid = token.length() / 2;
+        char replacement = token.charAt(mid) == 'X' ? 'Y' : 'X';
+        String tampered = token.substring(0, mid) + replacement + token.substring(mid + 1);
 
         assertThat(jwtService.isTokenValid(tampered)).isFalse();
     }
