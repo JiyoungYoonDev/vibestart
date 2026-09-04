@@ -32,6 +32,8 @@
 		<flyway.user>${env.DB_USER}</flyway.user>
 		<flyway.password>${env.DB_PASSWORD}</flyway.password>
 		<jjwt.version>0.12.6</jjwt.version>
+		<!-- Not managed by the Spring Boot BOM — verify against Maven Central. -->
+		<bucket4j.version>8.14.0</bucket4j.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -53,6 +55,16 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j_jdk11-core</artifactId>
+			<version>${bucket4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+			<!-- Version managed by the Spring Boot BOM. -->
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
